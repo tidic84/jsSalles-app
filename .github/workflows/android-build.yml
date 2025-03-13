@@ -23,8 +23,8 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: 16
-          # Pas de spécification de cache pour éviter l'erreur
+          node-version: 18
+          cache: 'yarn'
 
       - name: Install dependencies
         run: |

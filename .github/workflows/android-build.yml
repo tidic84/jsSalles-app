@@ -43,59 +43,79 @@ jobs:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
 
-      - name: Build Android APK
-        id: build
+      - name: Build and Get ID
+        id: build_step
         run: |
-          # Exécuter la commande de build et attendre qu'elle se termine
-          BUILD_RESULT=$(npx eas-cli build --platform android --profile preview --non-interactive)
-          echo "Build result: $BUILD_RESULT"
+          # Créer le build et capturer la sortie complète
+          BUILD_OUTPUT=$(npx eas-cli build --platform android --profile preview --non-interactive)
+          echo "$BUILD_OUTPUT"
           
-          # Extraire l'URL complète du build
-          BUILD_URL=$(echo "$BUILD_RESULT" | grep -o 'https://expo.dev/accounts/[^[:space:]]*' || echo "")
-          echo "BUILD_URL=$BUILD_URL" >> $GITHUB_ENV
+          # Extraire l'URL du build en cherchant la ligne qui contient l'URL
+          BUILD_URL=$(echo "$BUILD_OUTPUT" | grep "https://expo.dev/accounts/" | grep "builds" | tail -n 1)
+          echo "URL trouvée: $BUILD_URL"
           
-          # Extraire l'ID complet du build (avec les tirets)
-          BUILD_ID=$(echo "$BUILD_URL" | awk -F/ '{print $NF}')
-          echo "BUILD_ID=$BUILD_ID" >> $GITHUB_ENV
+          # Extraire uniquement l'identifiant du build (dernière partie de l'URL)
+          BUILD_ID=$(echo "$BUILD_URL" | sed -E 's/.*\/([0-9a-f-]+)$/\1/')
+          echo "ID du build: $BUILD_ID"
           
-          if [ -z "$BUILD_ID" ]; then
-            echo "Impossible d'extraire l'ID du build"
-            exit 1
-          fi
+          # Sauvegarder l'ID dans un fichier pour l'étape suivante
+          echo "$BUILD_ID" > build_id.txt
 
       - name: Wait for Build to Complete
         run: |
-          echo "Attente de la fin du build $BUILD_ID..."
-          # Boucle pour vérifier l'état du build
-          while true; do
-            STATUS=$(npx eas-cli build:view "$BUILD_ID" --json | jq -r '.status')
-            echo "Statut actuel: $STATUS"
+          BUILD_ID=$(cat build_id.txt)
+          echo "Attente de la fin du build: $BUILD_ID"
+          
+          # Attendre jusqu'à ce que le build soit terminé
+          MAX_ATTEMPTS=60  # 30 minutes maximum (30s * 60)
+          ATTEMPT=1
+          
+          while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+            echo "Tentative $ATTEMPT sur $MAX_ATTEMPTS"
+            BUILD_STATUS=$(npx eas-cli build:view $BUILD_ID --json | jq -r '.status')
+            echo "Statut: $BUILD_STATUS"
             
-            if [ "$STATUS" = "finished" ]; then
+            if [ "$BUILD_STATUS" = "finished" ]; then
               echo "Build terminé avec succès!"
               break
-            fi
-            
-            if [ "$STATUS" = "errored" ]; then
-              echo "Le build a échoué!"
+            elif [ "$BUILD_STATUS" = "errored" ] || [ "$BUILD_STATUS" = "canceled" ]; then
+              echo "Le build a échoué ou a été annulé"
               exit 1
             fi
             
-            echo "En attente..."
+            ATTEMPT=$((ATTEMPT + 1))
+            echo "Attente de 30 secondes..."
             sleep 30
           done
+          
+          if [ $ATTEMPT -gt $MAX_ATTEMPTS ]; then
+            echo "Délai d'attente dépassé"
+            exit 1
+          fi
 
       - name: Download APK
         run: |
-          # Télécharger l'APK une fois le build terminé
-          APK_URL=$(npx eas-cli build:view "$BUILD_ID" --json | jq -r '.artifacts.buildUrl')
+          BUILD_ID=$(cat build_id.txt)
+          echo "Téléchargement de l'APK pour le build: $BUILD_ID"
+          
+          # Récupérer l'URL de l'APK
+          APK_URL=$(npx eas-cli build:view $BUILD_ID --json | jq -r '.artifacts.buildUrl')
           echo "URL de l'APK: $APK_URL"
           
-          if [ -n "$APK_URL" ] && [ "$APK_URL" != "null" ]; then
-            curl -L -o app-release.apk "$APK_URL"
-            echo "APK téléchargé avec succès!"
-          else
+          if [ "$APK_URL" = "null" ] || [ -z "$APK_URL" ]; then
             echo "Impossible de récupérer l'URL de l'APK"
+            exit 1
+          fi
+          
+          echo "Téléchargement de l'APK..."
+          curl -L -o app-release.apk "$APK_URL"
+          
+          # Vérifier que le fichier a bien été téléchargé
+          if [ -f app-release.apk ]; then
+            ls -la app-release.apk
+            echo "APK téléchargé avec succès"
+          else
+            echo "Échec du téléchargement de l'APK"
             exit 1
           fi
 

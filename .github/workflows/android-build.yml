@@ -24,10 +24,17 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: 16
-          cache: 'yarn'
+          # Pas de spécification de cache pour éviter l'erreur
 
       - name: Install dependencies
-        run: yarn install
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          elif [ -f yarn.lock ]; then
+            yarn install --frozen-lockfile
+          else
+            npm install
+          fi
 
       - name: Setup Expo
         uses: expo/expo-github-action@v8

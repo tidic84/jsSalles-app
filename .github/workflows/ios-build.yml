@@ -1,0 +1,52 @@
+name: iOS Build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Install CocoaPods
+        run: |
+          gem install cocoapods -N
+          npm install -g expo-cli
+          
+      - name: Setup Expo and Generate Native Projects
+        run: npx expo prebuild -p ios
+
+      - name: Install pod dependencies
+        run: |
+          cd ios
+          pod install
+          cd ..
+
+      - name: Build iOS App
+        run: |
+          cd ios
+          xcodebuild -workspace sallesavignon.xcworkspace -scheme sallesavignon -configuration Release -sdk iphoneos -archivePath sallesavignon.xcarchive archive -allowProvisioningUpdates CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO DEVELOPMENT_TEAM=""
+          cd ..
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: ios-app
+          path: ios/build/
+          retention-days: 5

@@ -1,0 +1,56 @@
+name: Android Build
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Set up JDK 11
+        uses: actions/setup-java@v3
+        with:
+          java-version: '11'
+          distribution: 'temurin'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 16
+          cache: 'yarn'
+
+      - name: Install dependencies
+        run: yarn install
+
+      - name: Setup Expo
+        uses: expo/expo-github-action@v8
+        with:
+          expo-version: latest
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Build Android APK
+        run: |
+          npx eas-cli build --platform android --profile preview --non-interactive --no-wait
+
+      # Optionnellement, récupérez le build pour l'utiliser comme artefact
+      - name: Download Build Artifact
+        if: success() && github.event_name == 'workflow_dispatch'
+        run: |
+          npx eas-cli build:list --limit 1 --json --platform=android --status=finished | \
+          jq -r '.[0].artifacts.buildUrl' | xargs curl -o app-release.apk
+
+      - name: Upload APK
+        if: success() && github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v3
+        with:
+          name: app-release
+          path: app-release.apk
+          if-no-files-found: ignore

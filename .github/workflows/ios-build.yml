@@ -1,4 +1,4 @@
-name: iOS Build
+name: iOS Build (Simulator)
 
 on:
   push:
@@ -9,7 +9,7 @@ on:
 
 jobs:
   build:
-    name: Build iOS App
+    name: Build iOS App for Simulator
     runs-on: macos-latest
     
     steps:
@@ -42,27 +42,19 @@ jobs:
           cd ios
           pod install
         
-      - name: Build iOS app
+      # Modifié pour cibler le simulateur iOS
+      - name: Build iOS app for simulator
         run: |
           cd ios
           xcodebuild -workspace sallesavignon.xcworkspace \
             -scheme sallesavignon \
-            -configuration Release \
-            -sdk iphoneos \
-            -archivePath $PWD/build/sallesavignon.xcarchive \
-            archive
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'platform=iOS Simulator,name=iPhone 15' \
+            build
             
-      - name: Export IPA
-        run: |
-          cd ios
-          xcodebuild -exportArchive \
-            -archivePath $PWD/build/sallesavignon.xcarchive \
-            -exportOptionsPlist exportOptions.plist \
-            -exportPath $PWD/build
-            
-      - name: Upload IPA
-        # Mise à jour vers v4
+      - name: Archive build products
         uses: actions/upload-artifact@v4
         with:
-          name: ios-build
-          path: ios/build/*.ipa
+          name: ios-simulator-build
+          path: ios/build/

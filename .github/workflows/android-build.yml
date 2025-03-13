@@ -24,7 +24,7 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: 18
-          # Suppression de l'option cache
+          # Pas de spécification de cache
 
       - name: Install dependencies
         run: |
@@ -44,20 +44,73 @@ jobs:
           token: ${{ secrets.EXPO_TOKEN }}
 
       - name: Build Android APK
+        id: build
         run: |
-          npx eas-cli build --platform android --profile preview --non-interactive --no-wait
+          # Exécuter la commande de build et attendre qu'elle se termine
+          BUILD_RESULT=$(npx eas-cli build --platform android --profile preview --non-interactive)
+          echo "Build result: $BUILD_RESULT"
+          
+          # Extraire l'ID du build à partir de la sortie
+          BUILD_ID=$(echo "$BUILD_RESULT" | grep -oP 'https://expo.dev/accounts/.*/projects/.*/builds/\K[a-zA-Z0-9]+' || echo "")
+          echo "BUILD_ID=$BUILD_ID" >> $GITHUB_ENV
+          
+          if [ -z "$BUILD_ID" ]; then
+            echo "Impossible d'extraire l'ID du build"
+            exit 1
+          fi
 
-      # Optionnellement, récupérez le build pour l'utiliser comme artefact
-      - name: Download Build Artifact
-        if: success() && github.event_name == 'workflow_dispatch'
+      - name: Wait for Build to Complete
         run: |
-          npx eas-cli build:list --limit 1 --json --platform=android --status=finished | \
-          jq -r '.[0].artifacts.buildUrl' | xargs curl -o app-release.apk
+          echo "Attente de la fin du build $BUILD_ID..."
+          # Boucle pour vérifier l'état du build
+          while true; do
+            STATUS=$(npx eas-cli build:view $BUILD_ID --json | jq -r '.status')
+            echo "Statut actuel: $STATUS"
+            
+            if [ "$STATUS" = "finished" ]; then
+              echo "Build terminé avec succès!"
+              break
+            fi
+            
+            if [ "$STATUS" = "errored" ]; then
+              echo "Le build a échoué!"
+              exit 1
+            fi
+            
+            echo "En attente..."
+            sleep 30
+          done
 
-      - name: Upload APK
-        if: success() && github.event_name == 'workflow_dispatch'
+      - name: Download APK
+        run: |
+          # Télécharger l'APK une fois le build terminé
+          APK_URL=$(npx eas-cli build:view $BUILD_ID --json | jq -r '.artifacts.buildUrl')
+          echo "URL de l'APK: $APK_URL"
+          
+          if [ -n "$APK_URL" ]; then
+            curl -o app-release.apk "$APK_URL"
+            echo "APK téléchargé avec succès!"
+          else
+            echo "Impossible de récupérer l'URL de l'APK"
+            exit 1
+          fi
+
+      - name: Upload APK to GitHub
         uses: actions/upload-artifact@v4
         with:
           name: app-release
           path: app-release.apk
-          if-no-files-found: ignore
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Create Release
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ github.run_number }}
+          name: Release v${{ github.run_number }}
+          files: app-release.apk
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

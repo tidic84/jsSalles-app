@@ -1,145 +1,30 @@
 name: Android Build
 
 on:
-  push:
-    branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
-  workflow_dispatch:
-
+    push:
+      branches:
+        - main
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v3
-
-      - name: Set up JDK 11
-        uses: actions/setup-java@v3
-        with:
-          java-version: '11'
-          distribution: 'temurin'
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: 18
-          # Pas de spécification de cache
-
-      - name: Install dependencies
-        run: |
-          if [ -f package-lock.json ]; then
-            npm ci
-          elif [ -f yarn.lock ]; then
-            yarn install --frozen-lockfile
-          else
-            npm install
-          fi
-
-      - name: Setup Expo
-        uses: expo/expo-github-action@v8
-        with:
-          expo-version: latest
-          eas-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
-
-      - name: Build and Get ID
-        id: build_step
-        run: |
-          # Créer le build et capturer la sortie complète
-          BUILD_OUTPUT=$(npx eas-cli build --platform android --profile preview --non-interactive)
-          echo "$BUILD_OUTPUT"
-          
-          # Extraire l'URL du build en cherchant la ligne qui contient l'URL
-          BUILD_URL=$(echo "$BUILD_OUTPUT" | grep "https://expo.dev/accounts/" | grep "builds" | tail -n 1)
-          echo "URL trouvée: $BUILD_URL"
-          
-          # Extraire uniquement l'identifiant du build (dernière partie de l'URL)
-          BUILD_ID=$(echo "$BUILD_URL" | sed -E 's/.*\/([0-9a-f-]+)$/\1/')
-          echo "ID du build: $BUILD_ID"
-          
-          # Sauvegarder l'ID dans un fichier pour l'étape suivante
-          echo "$BUILD_ID" > build_id.txt
-
-      - name: Wait for Build to Complete
-        run: |
-          BUILD_ID=$(cat build_id.txt)
-          echo "Attente de la fin du build: $BUILD_ID"
-          
-          # Attendre jusqu'à ce que le build soit terminé
-          MAX_ATTEMPTS=60  # 30 minutes maximum (30s * 60)
-          ATTEMPT=1
-          
-          while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
-            echo "Tentative $ATTEMPT sur $MAX_ATTEMPTS"
-            BUILD_STATUS=$(npx eas-cli build:view $BUILD_ID --json | jq -r '.status')
-            echo "Statut: $BUILD_STATUS"
-            
-            if [ "$BUILD_STATUS" = "finished" ] || [ "$BUILD_STATUS" = "FINISHED" ]; then
-              echo "Build terminé avec succès!"
-              break
-            elif [ "$BUILD_STATUS" = "errored" ] || [ "$BUILD_STATUS" = "ERRORED" ] || [ "$BUILD_STATUS" = "canceled" ] || [ "$BUILD_STATUS" = "CANCELED" ]; then
-              echo "Le build a échoué ou a été annulé"
-              exit 1
-            fi
-            
-            if [ $ATTEMPT -ge $MAX_ATTEMPTS ]; then
-              # Si le statut est FINISHED malgré tout, on continue
-              if [ "$BUILD_STATUS" = "FINISHED" ]; then
-                echo "Le statut est FINISHED, on continue avec le téléchargement"
-                break
-              fi
-              echo "Délai d'attente dépassé"
-              exit 1
-            fi
-            
-            ATTEMPT=$((ATTEMPT + 1))
-            echo "Attente de 30 secondes..."
-            sleep 30
-          done
-
-      - name: Download APK
-        run: |
-          BUILD_ID=$(cat build_id.txt)
-          echo "Téléchargement de l'APK pour le build: $BUILD_ID"
-          
-          # Récupérer l'URL de l'APK
-          APK_URL=$(npx eas-cli build:view $BUILD_ID --json | jq -r '.artifacts.buildUrl')
-          echo "URL de l'APK: $APK_URL"
-          
-          if [ "$APK_URL" = "null" ] || [ -z "$APK_URL" ]; then
-            echo "Impossible de récupérer l'URL de l'APK"
-            exit 1
-          fi
-          
-          echo "Téléchargement de l'APK..."
-          curl -L -o app-release.apk "$APK_URL"
-          
-          # Vérifier que le fichier a bien été téléchargé
-          if [ -f app-release.apk ]; then
-            ls -la app-release.apk
-            echo "APK téléchargé avec succès"
-          else
-            echo "Échec du téléchargement de l'APK"
-            exit 1
-          fi
-
-      - name: Upload APK to GitHub
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-release
-          path: app-release.apk
-          if-no-files-found: error
-          retention-days: 90
-
-      - name: Create Release
-        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: v${{ github.run_number }}
-          name: Release v${{ github.run_number }}
-          files: app-release.apk
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    update:
+      runs-on: ubuntu-latest
+      steps:
+        - name: 🏗 Setup repo
+          uses: actions/checkout@v3
+  
+        - name: 🏗 Setup Node
+          uses: actions/setup-node@v3
+          with:
+            node-version: 18.x
+            cache: yarn
+  
+        - name: 🏗 Setup EAS
+          uses: expo/expo-github-action@v8
+          with:
+            eas-version: latest
+            token: ${{ secrets.EXPO_TOKEN }}
+  
+        - name: 📦 Install dependencies
+          run: yarn install
+  
+        - name: 🚀 Create update
+          run: eas update --auto --non-interactive

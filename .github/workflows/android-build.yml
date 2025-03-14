@@ -75,11 +75,21 @@ jobs:
             BUILD_STATUS=$(npx eas-cli build:view $BUILD_ID --json | jq -r '.status')
             echo "Statut: $BUILD_STATUS"
             
-            if [ "$BUILD_STATUS" = "finished" ]; then
+            if [ "$BUILD_STATUS" = "finished" ] || [ "$BUILD_STATUS" = "FINISHED" ]; then
               echo "Build terminé avec succès!"
               break
-            elif [ "$BUILD_STATUS" = "errored" ] || [ "$BUILD_STATUS" = "canceled" ]; then
+            elif [ "$BUILD_STATUS" = "errored" ] || [ "$BUILD_STATUS" = "ERRORED" ] || [ "$BUILD_STATUS" = "canceled" ] || [ "$BUILD_STATUS" = "CANCELED" ]; then
               echo "Le build a échoué ou a été annulé"
+              exit 1
+            fi
+            
+            if [ $ATTEMPT -ge $MAX_ATTEMPTS ]; then
+              # Si le statut est FINISHED malgré tout, on continue
+              if [ "$BUILD_STATUS" = "FINISHED" ]; then
+                echo "Le statut est FINISHED, on continue avec le téléchargement"
+                break
+              fi
+              echo "Délai d'attente dépassé"
               exit 1
             fi
             
@@ -87,11 +97,6 @@ jobs:
             echo "Attente de 30 secondes..."
             sleep 30
           done
-          
-          if [ $ATTEMPT -gt $MAX_ATTEMPTS ]; then
-            echo "Délai d'attente dépassé"
-            exit 1
-          fi
 
       - name: Download APK
         run: |
